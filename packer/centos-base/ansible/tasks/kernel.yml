@@ -1,0 +1,28 @@
+- name: install ELRepo key
+  rpm_key:
+    state: present
+    key: https://www.elrepo.org/RPM-GPG-KEY-elrepo.org
+
+- name: install elrepo repository
+  yum:
+    name: http://elrepo.org/elrepo-release-7.0-3.el7.elrepo.noarch.rpm
+    state: present
+
+- name: upgrade kernel
+  yum:
+    name: kernel-lt
+    state: present
+    enablerepo: elrepo-kernel
+  register: upgrade
+
+- name: change default grub entry
+  lineinfile:
+    dest: '/etc/default/grub'
+    regexp: '^GRUB_DEFAULT=.*'
+    line: 'GRUB_DEFAULT=0'
+  when: upgrade.changed
+  register: grub_entry
+
+- name: re-generate grub-config
+  command: grub2-mkconfig -o /boot/grub2/grub.cfg
+  when: upgrade.changed and grub_entry.changed

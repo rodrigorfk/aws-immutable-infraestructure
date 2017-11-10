@@ -1,0 +1,114 @@
+---
+- name: upgrade all packages
+  yum: name=* state=latest
+
+- name: disable SELinux
+  selinux:
+    policy: targeted
+    state: permissive
+
+- name: Import Docker CE repository gpg key
+  rpm_key:
+    key: https://download.docker.com/linux/centos/gpg
+    state: present
+
+- name: Add Docker CE repository
+  get_url:
+    url: https://download.docker.com/linux/centos/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    force: yes
+    owner: root
+    group: root
+    mode: 0644
+
+- name: yum - Install packages
+  yum:
+    name: "{{ item }}"
+    state: latest
+  with_items:
+    - lvm2
+    - yum-utils
+    - device-mapper-persistent-data
+    - yum-versionlock
+    - socat
+    - docker-ce
+    - epel-release
+  register: yum_packages
+
+- name: Import EPEL GPG key.
+  rpm_key:
+    key: /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-{{ ansible_distribution_major_version }}
+    state: present
+
+- name: yum - Install pip package
+  yum:
+    name: "{{ item }}"
+    state: latest
+  with_items:
+    - python-pip
+
+- name: pip - install docker-compose
+  pip:
+    name: docker-compose==1.15.0
+
+- name: fdisk - create partition to lvm
+  parted:
+    device: /dev/xvde
+    number: 1
+    flags: [ lvm ]
+    state: present
+
+- name: Docker - Create docker LVM PV and VG
+  lvg: vg=docker pvs=/dev/xvde1
+  tags:
+    - docker
+
+- name: Docker - Create docker LVM thinpool
+  lvol: vg=docker lv=thinpool size=95%VG opts='--wipesignatures y'
+  register: docker_lvm_thinpool
+  tags:
+    - docker
+
+- name: Docker - Create docker LVM thinpoolmeta
+  lvol: vg=docker lv=thinpoolmeta size=1%VG opts='--wipesignatures y'
+  when:
+    - docker_lvm_thinpool.changed
+  tags:
+    - docker
+
+- name: Docker - Convert docker storage pool to thinpool
+  command: lvconvert -y --zero n -c 512K --thinpool docker/thinpool --poolmetadata docker/thinpoolmeta
+  when:
+    - docker_lvm_thinpool.changed
+  tags:
+    - docker
+
+- name: Docker - Create docker thinpool LVM profile
+  copy: src=docker-thinpool.profile
+        dest=/etc/lvm/profile/
+        owner=root group=root mode=0644
+  register: docker_lvm_profile
+  tags:
+    - docker
+
+- name: Docker - Apply new docker storage LVM profile
+  command: lvchange --metadataprofile docker-thinpool docker/thinpool
+  when:
+    - docker_lvm_profile.changed
+  tags:
+    - docker
+
+- name: Ensures /etc/docker dir exists
+  file: path=/etc/docker state=directory
+
+- name: Docker - configure docker storage
+  copy: src=docker-daemon.json
+        dest=/etc/docker/daemon.json
+        owner=root group=root mode=0644
+  tags:
+    - docker
+
+- name: Docker - Enable service and start docker service
+  service: name=docker enabled=yes state=started
+  tags:
+    - docker

@@ -1,0 +1,6 @@
+- hosts: all
+  become: true
+  tasks:
+    - include: tasks/swap.yml
+    - include: tasks/kernel.yml
+    - include: tasks/main.yml

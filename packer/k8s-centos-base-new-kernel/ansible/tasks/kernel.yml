@@ -1,0 +1,5 @@
+---
+- name: Select the new kernel
+  shell: 'grub2-set-default $(awk -F\" "/menuentry / {print $2}" /etc/grub2.cfg | awk "/\(4/{ print NR-1; exit }")'
+- name: Save the new configuration
+  shell: 'grub2-mkconfig -o /boot/grub2/grub.cfg'

@@ -1,0 +1,70 @@
+---
+
+- name: disable SELinux
+  selinux:
+    policy: targeted
+    state: permissive
+
+- name: yum - Install packages
+  yum:
+    name: "{{ item }}"
+    state: latest
+  with_items:
+    - lvm2
+    - yum-versionlock
+    - socat
+  register: yum_packages
+
+- name: fdisk - create partition to lvm
+  parted:
+    device: /dev/xvde
+    number: 1
+    flags: [ lvm ]
+    state: present
+
+- name: Docker - Create docker LVM PV and VG
+  lvg: vg=docker pvs=/dev/xvde1
+  tags:
+    - docker
+
+- name: Docker - Create docker LVM thinpool
+  lvol: vg=docker lv=thinpool size=95%VG opts='--wipesignatures y'
+  register: docker_lvm_thinpool
+  tags:
+    - docker
+
+- name: Docker - Create docker LVM thinpoolmeta
+  lvol: vg=docker lv=thinpoolmeta size=1%VG opts='--wipesignatures y'
+  when:
+    - docker_lvm_thinpool.changed
+  tags:
+    - docker
+
+- name: Docker - Convert docker storage pool to thinpool
+  command: lvconvert -y --zero n -c 512K --thinpool docker/thinpool --poolmetadata docker/thinpoolmeta
+  when:
+    - docker_lvm_thinpool.changed
+  tags:
+    - docker
+
+- name: Docker - Create docker thinpool LVM profile
+  copy: src=docker-thinpool.profile
+        dest=/etc/lvm/profile/
+        owner=root group=root mode=0644
+  register: docker_lvm_profile
+  tags:
+    - docker
+
+- name: Docker - Apply new docker storage LVM profile
+  command: lvchange --metadataprofile docker-thinpool docker/thinpool
+  when:
+    - docker_lvm_profile.changed
+  tags:
+    - docker
+
+- name: Docker - configure docker via systemd
+  copy: src=docker.conf
+        dest=/etc/systemd/system/docker.service.d/
+        owner=root group=root mode=0644
+  tags:
+    - docker
