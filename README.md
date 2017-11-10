@@ -21,6 +21,7 @@ export AWS_DEFAULT_REGION=us-west-2
 ```
 ## Criação de uma stack no cloudformation para obter credenciais IAM para rodar o Packer e o KOPS
 ```shell
+aws cloudformation create-stack --stack-name immutable-iam-permissions --template-body file://cfn-templates/iam-permisions.yaml --capabilities CAPABILITY_NAMED_IAM
 aws cloudformation wait stack-create-complete --stack-name immutable-iam-permissions
 aws iam create-access-key --user-name immutable-infraestructure-user > permissions.json
 export AWS_ACCESS_KEY=$(cat permissions.json | jq .AccessKey.AccessKeyId --raw-output)
